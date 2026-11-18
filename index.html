@@ -194,5 +194,8 @@ scan = function() {
     : "Small demo model only—not a production security model. Its confidence is not a real-world fraud probability.";
 };
 
+// Rebind the button after wrapping scan so both the rules and local ML run.
+document.getElementById("scan").onclick = scan;
+
 
 </script></body></html>
