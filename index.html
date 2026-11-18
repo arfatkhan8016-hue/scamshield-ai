@@ -11,8 +11,19 @@
 <section class="hero"><div class="cyan" style="font-size:11px;letter-spacing:2px;font-weight:800">PAUSE · CHECK · PROTECT</div><h1 id="headline">Think before you <span class="cyan">pay.</span></h1><p class="muted" id="subhead">Check suspicious SMS, WhatsApp messages and payment requests for common fraud warning signs. Text is analysed locally in this demo.</p></section>
 <section class="card"><h3 id="inputTitle">Paste a suspicious message</h3><p class="muted" id="hint">Remove personal details first. Never enter your UPI PIN, OTP, password or bank details.</p><textarea id="message" placeholder="Example: Your bank account will be blocked. Verify KYC now at http://..."></textarea><p><button class="primary" id="scan">🔍 Scan message</button><button class="secondary" id="clear">Clear</button></p><div class="examples"><button class="example" data-ex="Your bank account will be blocked today. Complete KYC immediately at http://bank-verify.example and share OTP.">Try suspicious example</button><button class="example" data-ex="Your friend sent you ₹500. Open your UPI app and check your balance in the official app.">Try safer example</button><button class="example" data-ex="Congratulations! You won a cashback prize. Click https://bit.ly/example and enter your OTP to claim.">Try link scam example</button></div></section>
 <section class="card result" id="result" aria-live="polite"><h3>Scan result</h3><div class="risk"><div class="score" id="score"><span id="number">0</span></div><div><b id="level">Review needed</b><p class="muted" id="desc"></p></div></div><h3>Warning signs found</h3><ul id="flags"></ul><div class="safe" id="advice"></div><div class="warn">Demo screening only. This tool cannot confirm whether a message is genuine or fraudulent. A low score does not prove safety. Verify independently with your bank or official payment app.</div></section>
+
+<section class="card" id="localModelCard">
+  <h3>🧠 Local ML experiment</h3>
+  <p class="muted">A small Naive Bayes text classifier runs in this browser. It does not send your message to a server.</p>
+  <div class="risk">
+    <div class="score" id="mlScore" style="border-color:#65a9ff"><span id="mlNumber">—</span></div>
+    <div><b id="mlLabel">Waiting for a scan</b><p class="muted" id="mlDesc">This is an experimental model signal, not proof of fraud.</p></div>
+  </div>
+  <p class="muted" id="mlLimit">Model: Naive Bayes · trained from a small set of built-in example messages · works offline after this page loads.</p>
+</section>
+
 <section class="card"><h3 id="tipsTitle">How to stay safer</h3><div class="tips"><div class="tip"><b>🔐 Never share OTP or UPI PIN</b><p class="muted" id="tip1">Your PIN sends money. You do not need it to receive money.</p></div><div class="tip"><b>🔗 Check links carefully</b><p class="muted" id="tip2">Avoid unexpected links. Open the official app yourself.</p></div><div class="tip"><b>📞 Verify independently</b><p class="muted" id="tip3">Call your bank using a number from its official website or your card.</p></div></div></section>
-<div class="footer">ScamShield AI · Student prototype · Local rule-based demo<br>Never paste real OTPs, PINs, passwords or private financial information.</div></main>
+<div class="footer">ScamShield AI · Student prototype · Local rules + experimental browser ML<br>Never paste real OTPs, PINs, passwords or private financial information.</div></main>
 <script>
 const rules=[
 [/\b(otp|one time password|verification code)\b/i,28,"Asks for an OTP or verification code","OTP या verification code माँगा गया है"],
@@ -75,4 +86,113 @@ document.getElementById("lang").onchange=e=>{
  document.getElementById("tip2").textContent=hi?"अनजान लिंक न खोलें। आधिकारिक ऐप खुद खोलें।":"Avoid unexpected links. Open the official app yourself.";
  document.getElementById("tip3").textContent=hi?"बैंक की आधिकारिक वेबसाइट या कार्ड पर दिए नंबर से कॉल करें।":"Call your bank using a number from its official website or your card.";
 };
+
+// Stage 2: tiny, transparent Naive Bayes model. All inference happens in this browser.
+const localTrainingExamples = [
+  ["Your bank account will be blocked today complete KYC immediately share OTP", "scam"],
+  ["Congratulations you won a cashback prize click this link and enter OTP", "scam"],
+  ["Your parcel is held pay a small fee now using this link", "scam"],
+  ["Your electricity connection will be disconnected today pay immediately", "scam"],
+  ["You have won a lottery claim your reward by sharing bank details", "scam"],
+  ["Dear customer update your account password at this unknown link urgently", "scam"],
+  ["Send your UPI PIN to receive the refund", "scam"],
+  ["Your account is suspended verify your identity now", "scam"],
+  ["KYC expired click here to avoid account closure", "scam"],
+  ["You are selected for a free gift pay delivery charge now", "scam"],
+  ["Aapka bank account band ho jayega abhi KYC update karo OTP bhejo", "scam"],
+  ["Inaam jeetne ke liye link kholo aur OTP dalo", "scam"],
+  ["Bijli connection kat jayega turant payment karo", "scam"],
+  ["Refund pane ke liye UPI PIN share karo", "scam"],
+  ["Aapka parcel rok diya gaya hai fee abhi bharo", "scam"],
+  ["Account block hoga verify now click link", "scam"],
+  ["Your friend sent you money check your balance in your official UPI app", "safe"],
+  ["Your monthly bank statement is available in the official app", "safe"],
+  ["Thank you for shopping your order has been delivered", "safe"],
+  ["Your appointment is confirmed for tomorrow at ten", "safe"],
+  ["Meeting moved to three pm please confirm with the team", "safe"],
+  ["Your salary has been credited check the bank app directly", "safe"],
+  ["Please call me when you are free", "safe"],
+  ["The college lecture starts at nine in the morning", "safe"],
+  ["Aapka order deliver ho gaya hai dhanyawad", "safe"],
+  ["Kal college mein class das baje shuru hogi", "safe"],
+  ["Maine paise official app mein receive hone check kar liye", "safe"],
+  ["Kripya mujhe free hone par phone karna", "safe"],
+  ["Aaj meeting teen baje hai", "safe"],
+  ["Your payment receipt is available in the app you opened yourself", "safe"],
+  ["The train is running ten minutes late", "safe"],
+  ["Happy birthday have a wonderful day", "safe"]
+];
+
+function localTokens(text) {
+  return (text.toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []);
+}
+function trainLocalNaiveBayes(examples) {
+  const classes = ["scam", "safe"];
+  const counts = {scam: {}, safe: {}};
+  const totals = {scam: 0, safe: 0};
+  const docs = {scam: 0, safe: 0};
+  const vocabulary = new Set();
+
+  examples.forEach(([sentence, label]) => {
+    docs[label] += 1;
+    localTokens(sentence).forEach(token => {
+      vocabulary.add(token);
+      counts[label][token] = (counts[label][token] || 0) + 1;
+      totals[label] += 1;
+    });
+  });
+  return {classes, counts, totals, docs, vocabulary};
+}
+const localNB = trainLocalNaiveBayes(localTrainingExamples);
+
+function classifyLocally(text) {
+  const tokens = localTokens(text);
+  if (!tokens.length) return null;
+  const vocabSize = localNB.vocabulary.size || 1;
+  const totalDocs = localNB.docs.scam + localNB.docs.safe;
+  const logScores = {};
+  localNB.classes.forEach(label => {
+    logScores[label] = Math.log(localNB.docs[label] / totalDocs);
+    tokens.forEach(token => {
+      const count = localNB.counts[label][token] || 0;
+      const probability = (count + 1) / (localNB.totals[label] + vocabSize);
+      logScores[label] += Math.log(probability);
+    });
+  });
+  const maxLog = Math.max(logScores.scam, logScores.safe);
+  const scamExp = Math.exp(logScores.scam - maxLog);
+  const safeExp = Math.exp(logScores.safe - maxLog);
+  const scamShare = scamExp / (scamExp + safeExp);
+  return {label: scamShare >= 0.5 ? "scam" : "safe",
+          confidence: Math.round(Math.max(scamShare, 1 - scamShare) * 100),
+          scamShare: Math.round(scamShare * 100)};
+}
+
+const originalScan = scan;
+scan = function() {
+  originalScan();
+  const textValue = document.getElementById("message").value.trim();
+  const prediction = classifyLocally(textValue);
+  const hi = document.getElementById("lang").value === "hi";
+  const scoreEl = document.getElementById("mlScore");
+  if (!prediction) {
+    document.getElementById("mlNumber").textContent = "—";
+    document.getElementById("mlLabel").textContent = hi ? "संदेश पढ़ा नहीं जा सका" : "Not enough text";
+    document.getElementById("mlDesc").textContent = "";
+    return;
+  }
+  document.getElementById("mlNumber").textContent = prediction.confidence;
+  scoreEl.style.borderColor = prediction.label === "scam" ? "#ff667d" : "#35d39a";
+  document.getElementById("mlLabel").textContent = hi
+    ? (prediction.label === "scam" ? "ML संकेत: scam जैसा" : "ML संकेत: सामान्य जैसा")
+    : (prediction.label === "scam" ? "ML signal: scam-like" : "ML signal: ordinary-like");
+  document.getElementById("mlDesc").textContent = hi
+    ? `मॉडल ने ${prediction.scamShare}% scam-जैसे संकेत का अनुमान लगाया।`
+    : `Model's scam-like class share: ${prediction.scamShare}%.`;
+  document.getElementById("mlLimit").textContent = hi
+    ? "यह छोटा demo model है, trained production security model नहीं। परिणाम गलत हो सकते हैं।"
+    : "Small demo model only—not a production security model. Its confidence is not a real-world fraud probability.";
+};
+
+
 </script></body></html>
